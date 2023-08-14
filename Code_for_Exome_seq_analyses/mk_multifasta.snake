@@ -1,0 +1,128 @@
+#Author: Murillo Rodrigues.
+#Contact: murillor@uoregon.edu 
+
+
+import snakemake
+from Bio import Seq, SeqIO
+import pandas as pd
+
+genes = pd.read_csv("../rnai_genes_snpgcalling.tsv", sep="\t")
+focal = ["loqs", "loqs2", "r2d2", "dicer2", "dcr1"]
+genes = genes[genes.symbol.isin(focal)]
+
+samples = pd.read_csv("../samples_metadata.tsv", sep="\t")
+samples.pop = samples["Sample Name"].str[0:3]
+sef_ids = samples[samples.pop == "SEF"].Run.to_list()
+
+full_vcf = "../ALL_RNAi_genes_final.merged.All_sites.filtered.vcf.gz"
+inds = [f'{sid}_Aegypti' for sid in sef_ids]
+
+ref_fa = "../VectorBase-52_AaegyptiLVP_AGWG_Genome.fasta"
+ref_indices = [f'{ref_fa}.fai', f'{ref_fa[:-6]}.dict']
+ogs = ["SRR9959083_Mascarensis"] #["SRR4868232_Bromeliae"]
+vcf_suffix = "_RNAi_genes_final_filtered.vcf.gz"
+indexed_all = [f'{prefix}{vcf_suffix}.tbi' for prefix in ogs + inds]
+all_fastas = [f'{prefix}_{gene}.fasta' for gene in genes.symbol for prefix in ogs+inds]
+ref_fastas = [f'ref_{gene}.fasta' for gene in genes.symbol]
+imkt_fastas = [f'imkt_{ogs[0]}_{gene}.fasta' for gene in genes.symbol]
+
+def get_gene_coord_str(wildcards, add_L=False):
+    if add_L:
+        L="-L "
+    else:
+        L=""
+    gene = genes[genes.symbol==wildcards.gene]
+    cdss = gene.CDS.item().split(',')
+    coord_strs = [f'{L}{gene.chrom.item()}:{cds}' for cds in cdss]
+    return ' '.join(coord_strs)
+
+def is_negative_strand(wildcards):
+    gene = genes[genes.symbol==wildcards.gene]
+    return gene.strand.item() == "-" 
+
+def merge_seqrecord_dict(dic, prefix=""):
+    desc = '__'.join(dic.keys())
+    desc = prefix+desc
+    seq = ''.join([str(item.seq) for item in dic.values()])
+    return SeqIO.SeqRecord(seq=Seq.Seq(seq), id=desc, name=desc, description=desc)
+
+
+rule all:
+    input: ref_indices + indexed_all + all_fastas + ref_fastas + imkt_fastas
+
+rule index_ref:
+    input: ref_fa
+    output: ref_indices 
+    shell:
+        ("samtools faidx {input}"
+        " && gatk CreateSequenceDictionary -R {input}")
+
+rule filter_vcf:
+    input: "{oldname}.vcf.gz"
+    output: "{oldname}_filtered.vcf.gz"
+    shell:
+        # filtering only SNPs, with at most 2 alleles, and two copies
+        "bcftools view {input} -ac 1 -v snps -e 'FORMAT/DP<8 & INFO/MQ>30' -O b -o {output}"
+
+rule split_vcf:
+    input: full_vcf
+    output: f"{{srr}}_Aegypti{vcf_suffix}"
+    shell:
+        "bcftools view -c1 -Oz -s {wildcards.srr} -v snps -o {output} {input}"
+
+rule index_vcf:
+    input: "{name}.vcf.gz"
+    output: "{name}.vcf.gz.tbi"
+    shell:
+        "gatk IndexFeatureFile -I {input}"
+
+rule get_ref_fastas:
+    input: ref=ref_fa, ref_indices=ref_indices
+    output: "ref_{gene}.fasta"
+    params: loc_str = get_gene_coord_str
+    shell:
+        "samtools faidx {input.ref} {params.loc_str} > {output}"
+
+rule get_all_fastas:
+    input: vcf=f"{{prefix}}{vcf_suffix}", vcf_tbi=f"{{prefix}}{vcf_suffix}.tbi", ref=ref_fa, ref_indices=ref_indices
+    output: "{prefix}_{gene}.fasta"
+    params: loc_str = lambda x: get_gene_coord_str(x, True)
+    shell:
+        ("gatk FastaAlternateReferenceMaker "
+        "-R {input.ref} "
+        "-O {output} "
+        "{params.loc_str} "
+        "-V {input.vcf}")
+
+rule get_inds_consensus:
+    input: vcf="{oldname}_filtered.vcf.gz", ref="ref_{gene}.fasta"
+    output: "cons_{gene}.fasta"
+
+
+rule build_multifasta:
+    input: ogs_fastas=[f'{prefix}_{{gene}}.fasta' for prefix in ogs], inds_fastas=[f'{prefix}_{{gene}}.fasta' for prefix in inds] , ref='ref_{gene}.fasta'
+    params: rev_trans=is_negative_strand
+    output: "imkt_{outspp}_{gene}.fasta"
+    run:
+        ref_seqs = SeqIO.to_dict(SeqIO.parse(open(input.ref), "fasta"))
+        ref_seq = merge_seqrecord_dict(ref_seqs, prefix="ref_")
+        print(ref_seqs.keys())
+        out_seqs = SeqIO.to_dict(SeqIO.parse(open(input.ogs_fastas[0]), "fasta"))
+        print(out_seqs.keys())
+        out_seq = merge_seqrecord_dict(out_seqs, prefix="out_")
+        ind_seqs = []
+        for i, fa in enumerate(input.inds_fastas):
+            seqs = SeqIO.to_dict(SeqIO.parse(open(fa), "fasta"))
+            ind_seqs.append(merge_seqrecord_dict(seqs, prefix=f'sample{i}_'))
+        tmp_seqs = [ref_seq]+ind_seqs+[out_seq]
+        all_seqs = tmp_seqs
+        if params.rev_trans:
+            print("rev trans for gene", wildcards.gene)
+            all_seqs = []
+            for seq in tmp_seqs:
+                all_seqs.append(seq.reverse_complement(id=True, name=True, description=True))
+        for seq in all_seqs:
+            print(len(seq))
+        strout = '_'.join((input.ogs_fastas[0]).split("_")[0:2])
+        with open(f"imkt_{strout}_{wildcards.gene}.fasta", "w") as out:
+            SeqIO.write(all_seqs, out, "fasta-2line")
