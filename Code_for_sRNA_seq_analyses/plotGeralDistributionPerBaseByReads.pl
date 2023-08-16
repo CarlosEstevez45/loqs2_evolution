@@ -406,15 +406,13 @@ close(O4);
 
 if(defined($plot)){
     if(defined($norm)){
-       `/home/carlos/R/bin/R --no-save $prefix.Geral_base_distribution_norm $prefix.NORMALIZED_Geral_base_distribution_by_reads RPM < $PATH/calcDistributionPerBase_publication.R`;
-	`/home/carlos/R/bin/R --no-save $prefix.Geral_base_distribution_norm $prefix.NORMALIZED_Geral_base_distribution_by_reads_ZOOM_piRNAS RPM < $PATH/calcDistributionPerBase_publication_zoom_piRNAs.R`;
-       `/home/carlos/R/bin/R --no-save $prefix.Geral_base_distribution_norm $prefix.NORMALIZED_Geral_base_distribution_sumstrands_by_reads RPM < $PATH/calcDistributionPerBaseSumStrand_publication.R`;	
+       `/home/carlos/R/bin/R --no-save $prefix.Geral_base_distribution_norm $prefix.NORMALIZED_Geral_base_distribution_by_reads RPM < $PATH/PlotDistPerBase.R`;
+       `/home/carlos/R/bin/R --no-save $prefix.Geral_base_distribution_norm $prefix.NORMALIZED_Geral_base_distribution_sumstrands_by_reads RPM < $PATH/PlotDistPerBaseSumStrand.R`;	
      
      }
     
     `/home/carlos/R/bin/R --no-save $prefix.Geral_base_distribution $prefix.Geral_base_distribution_by_reads < $PATH/calcDistributionPerBase_publication.R`;
-    `/home/carlos/R/bin/R --no-save $prefix.Geral_base_distribution $prefix.Geral_base_distribution_by_reads_ZOOM_piRNAs < $PATH/calcDistributionPerBase_publication_zoom_piRNAs.R`;
-    `/home/carlos/R/bin/R --no-save $prefix.Geral_base_distribution $prefix.Geral_base_distribution_sumstrands_by_reads < $PATH/calcDistributionPerBaseSumStrand_publication.R`;
+    `/home/carlos/R/bin/R --no-save $prefix.Geral_base_distribution $prefix.Geral_base_distribution_sumstrands_by_reads < $PATH/PlotDistPerBaseSumStrand.R`;
     
 }
 
